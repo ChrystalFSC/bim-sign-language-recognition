@@ -4,7 +4,7 @@ A systematic comparative study of **9 CNN architectures** for mobile-based Bahas
 
 ---
 
-## 🏆 Key Results
+## Key Results 🏆
 
 ### Proposed Model — MobileNetV3-Small
 
@@ -35,11 +35,11 @@ A systematic comparative study of **9 CNN architectures** for mobile-based Bahas
 
 > ⭐ **MobileNetV3-Small** selected for mobile deployment: best accuracy-to-size ratio with 11.7× fewer parameters than ResNet18.
 >
-> 📝 **Note:** The main benchmark compares 9 CNN architectures. The `alexnet_frozen_base/` and `resnet18_frozen_base/` folders are control experiments used to validate the effect of training configuration and weight initialisation.
+> **Note:** The main benchmark compares 9 CNN architectures. The `alexnet_frozen_base/` and `resnet18_frozen_base/` folders are control experiments used to validate the effect of training configuration and weight initialisation.
 
 ---
 
-## 🔧 System Architecture
+## System Architecture 🔧 
 
 ### Two-Stage Mobile Inference Pipeline
 
@@ -76,7 +76,7 @@ Camera Frame
 
 ---
 
-## 📁 Project Structure
+## Project Structure 📁
 
 ```
 bim-sign-language-recognition/
@@ -153,7 +153,7 @@ bim-sign-language-recognition/
 
 ---
 
-## 📦 Dataset
+## Dataset
 
 - **Language**: Bahasa Isyarat Malaysia (BIM)
 - **Classes**: 36 — digits 0–9, letters A–Z
@@ -181,7 +181,7 @@ This repository is designed to support academic validation and partial reproduci
 
 ---
 
-## 📦 Model Weights & Releases
+## Model Weights & Releases
 
 The final deployed TensorFlow Lite model is included directly in this repository:
 ```
@@ -231,7 +231,7 @@ python train_stage3_1.py
 
 ---
 
-## 📱 Flutter Mobile Prototype
+## Flutter Mobile Prototype📱 
 
 The Flutter Android proof-of-concept application is included under:
 

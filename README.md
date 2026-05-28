@@ -119,7 +119,7 @@ bim-sign-language-recognition/
 │   ├── generate_confusion_matrix.py  # Create high-res confusion matrix heatmaps
 │   └── get_report_metrics.py         # Automated metrics compiler for thesis report
 │
-├── visualization/                    # Thesis figure generation scripts
+├── visualisation/                    # Thesis figure generation scripts
 │   ├── generate_thesis_figures.py    # Generates final thesis visual charts
 │   └── visualize_training.py         # Plots training curves from CSV logs
 │
@@ -129,7 +129,7 @@ bim-sign-language-recognition/
 ├── demo/                             # Inference demos for local testing
 │   ├── classify_keras.py             # Single-image classifier script
 │   ├── test_my_image.py              # Run inference on any custom image
-│   └── webcam_demo.py                # Real-time computer webcam classifier
+│   └── webcam_demo_tflite.py         # Real-time TFLite webcam classifier
 │
 ├── deployment/                       # Final deployable model artefacts
 │   ├── README.md                     # Model specification metadata
@@ -139,8 +139,7 @@ bim-sign-language-recognition/
 ├── thesis_outputs/                   # Final report evidence outputs
 │   ├── report_metrics/               # Compiled metric TXT files
 │   ├── classification_reports/       # Stage-specific classification reports
-│   ├── confusion_matrices/           # Heatmap PNGs of model predictions
-│   └── figures/                      # Comparative plots & charts
+│   └── confusion_matrices/           # Heatmap PNGs of model predictions
 │
 ├── benchmark_efficiency.py           # FLOPs, parameters, size benchmarking
 ├── tflite_optimize.py                # TFLite quantisation script (Float16/INT8)
@@ -219,7 +218,7 @@ flutter run
 You can test the optimised model using a local computer webcam:
 
 ```bash
-python demo/webcam_demo.py
+python demo/webcam_demo_tflite.py
 ```
 
 ### 4. Retraining Pipeline (If Dataset is Provided)

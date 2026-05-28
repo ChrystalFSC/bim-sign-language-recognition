@@ -9,7 +9,7 @@ This directory contains the final optimised deep learning model checkpoints comp
 - **Model Size**: **1.87 MB** (1,960,908 bytes)
 - **Top-1 Accuracy**: **96.06%**
 - **GPU Compatibility**: Fully delegated (217 / 217 operations compatible with Android NNAPI / GPU delegates)
-- **Input Dimensions**: `1 × 224 × 224 × 3` (RGB Float32 normalised [0.0, 1.0])
+- **Input Dimensions**: `1 × 224 × 224 × 3` (RGB Float32 raw pixel range [0.0, 255.0]). *Note: The model incorporates an internal Keras Rescaling(1./255) layer, so input values should remain in [0.0, 255.0] without manual normalisation.*
 - **Output Classes**: `36` (Bahasa Isyarat Malaysia alphanumeric digits 0-9 and letters A-Z)
 
 ---

@@ -1,0 +1,82 @@
+# ============================================================
+# Data directories (too large for GitHub)
+# ============================================================
+train_data/
+val_data/
+test_data/
+augmented_data/
+cleaned_data/
+processed_data/
+
+# ============================================================
+# Model files (large binary files — use Git LFS or Releases)
+# ============================================================
+*.keras
+*.h5
+*.pb
+*.onnx
+
+# ============================================================
+# Root-level output/ and generated model folders
+# Stage results are in stage_training/output/ and experimental_models/*/output/
+# ============================================================
+/output/
+/tflite_models/
+
+# ============================================================
+# Temporary reorganisation scripts
+# ============================================================
+fix_stray.ps1
+reorganize_fyp2.ps1
+
+# ============================================================
+# Python environment
+# ============================================================
+tf_env_wsl/
+tf_env/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ============================================================
+# Flutter Build and Caches (flutter_app/)
+# ============================================================
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/build/
+flutter_app/pubspec.lock
+flutter_app/*.iml
+flutter_app/.idea/
+
+# ============================================================
+# IDE / OS files
+# ============================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# ============================================================
+# Archives
+# ============================================================
+*.zip
+
+# ============================================================
+# Temporary / scratch files
+# ============================================================
+scratch/
+cleanup.py
+# ============================================================
+# Generated benchmark cache
+# ============================================================
+benchmark_results/
+
+# ============================================================
+# Generated thesis figures (regenerate locally via visualization/)
+# ============================================================
+thesis_figures/

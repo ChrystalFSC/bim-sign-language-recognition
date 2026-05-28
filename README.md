@@ -2,8 +2,6 @@
 
 A systematic comparative study of **9 CNN architectures** for mobile-based Bahasa Isyarat Malaysia (BIM) fingerspelling recognition, with mobile deployment via a two-stage MediaPipe + MobileNetV3-Small inference pipeline.
 
-**Final Year Project (FYP2)** — Computer Science, 2025/2026
-
 ---
 
 ## 🏆 Key Results

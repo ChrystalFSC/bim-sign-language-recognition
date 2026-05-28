@@ -164,7 +164,7 @@ bim-sign-language-recognition/
 
 ---
 
-## 🛡️ Reproducibility Notice
+## Reproducibility Notice
 
 This repository is designed to support academic validation and partial reproducibility of the project results.
 
@@ -193,7 +193,7 @@ Large trained `.keras` model checkpoints for the comparative architectures are e
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 > ⚠️ **Note:** Full model training requires the preprocessed dataset, which is not included in this repository due to size constraints. The included scripts document the pipeline, while final evaluation outputs are provided directly inside the `thesis_outputs/` directory.
 

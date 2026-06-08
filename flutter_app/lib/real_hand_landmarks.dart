@@ -1,6 +1,6 @@
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
-import 'dart:typed_data';
 import 'dart:math';
 import 'package:flutter/material.dart';
 
@@ -16,16 +16,16 @@ class RealHandLandmarkDetector {
   /// Load both palm detection and hand landmark models
   Future<void> load() async {
     try {
-      print('Loading MediaPipe hand landmark models...');
+      if (kDebugMode) debugPrint('Loading MediaPipe hand landmark models...');
       
       // For now, we'll use simplified detection
       // Real MediaPipe would need palm_detection.tflite + hand_landmark.tflite
       // Since we only have palm_detection, we'll enhance our existing detector
       
       _isLoaded = true;
-      print('✓ Hand landmark detector ready');
+      if (kDebugMode) debugPrint('Hand landmark detector ready');
     } catch (e) {
-      print('Error loading hand landmark detector: $e');
+      debugPrint('Error loading hand landmark detector: $e');
       _isLoaded = false;
     }
   }
@@ -44,7 +44,7 @@ class RealHandLandmarkDetector {
       return _generateLandmarks(handBox, image.width, image.height);
       
     } catch (e) {
-      print('Hand landmark detection error: $e');
+      debugPrint('Hand landmark detection error: $e');
       return null;
     }
   }
@@ -85,7 +85,6 @@ class RealHandLandmarkDetector {
   
   /// Check if RGB is skin tone (YCbCr color space)
   bool _isSkinTone(int r, int g, int b) {
-    double y = 0.299 * r + 0.587 * g + 0.114 * b;
     double cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
     double cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
     
@@ -104,7 +103,6 @@ class RealHandLandmarkDetector {
     final width = right - left;
     final height = bottom - top;
     final centerX = (left + right) / 2;
-    final centerY = (top + bottom) / 2;
     
     List<Offset> landmarks = [];
     

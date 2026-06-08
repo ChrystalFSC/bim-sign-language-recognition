@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
@@ -13,34 +13,36 @@ class SignClassifier {
 
   Future<void> load() async {
     try {
-      print('Loading model...');
+      if (kDebugMode) debugPrint('Loading model...');
       
       InterpreterOptions options = InterpreterOptions();
       try {
         final gpuDelegate = GpuDelegateV2();
         options.addDelegate(gpuDelegate);
-        print('GPU enabled');
+        if (kDebugMode) debugPrint('GPU enabled');
       } catch (e) {
-        print('Using CPU');
+        if (kDebugMode) debugPrint('Using CPU');
       }
       options.threads = 4;
       
       _interpreter = await Interpreter.fromAsset(
-        'assets/model/mobilenetv3_small_float16.tflite',  // Standardized Float16 optimized model
+        'assets/model_stage3_1_float16.tflite',  // Stage 3.1: Float16 optimized model
         options: options,
       );
       
-      print('Input: ${_interpreter!.getInputTensors()}');
-      print('Output: ${_interpreter!.getOutputTensors()}');
+      if (kDebugMode) {
+        debugPrint('Input: ${_interpreter!.getInputTensors()}');
+        debugPrint('Output: ${_interpreter!.getOutputTensors()}');
+      }
       
       // Load class labels
-      final labelsData = await rootBundle.loadString('assets/labels/label_map.txt');
+      final labelsData = await rootBundle.loadString('assets/classes.txt');
       _labels = labelsData.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-      print('Loaded ${_labels.length} classes: $_labels');
+      if (kDebugMode) debugPrint('Loaded ${_labels.length} classes: $_labels');
       
       _isLoaded = true;
     } catch (e) {
-      print('Error: $e');
+      debugPrint('Error: $e');
       rethrow;
     }
   }
@@ -105,9 +107,6 @@ class SignClassifier {
         'confidence': sumScores > 0 ? e.value / sumScores : 0.0,
       };
     }).toList();
-    
-    print('Mode: $mode | Inference: ${inferenceTime}ms');
-    print('Top 5: ${indexed.take(5).map((e) => "${_labels[e.key]}:${(e.value*100).toStringAsFixed(1)}%").join(", ")}');
     
     final label = topIdx < _labels.length ? _labels[topIdx] : 'Unknown';
     return {

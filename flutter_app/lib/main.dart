@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'sign_classifier.dart';
+import 'landmark_classifier.dart';
 import 'mediapipe_hand_detector.dart';
 import 'hand_landmark_painter.dart';
-import 'dart:math' as math;
 
 List<CameraDescription> cameras = [];
 
@@ -16,7 +16,7 @@ void main() async {
   try {
     cameras = await availableCameras();
   } catch (e) {
-    print('Error getting cameras: $e');
+    debugPrint('Error getting cameras: $e');
   }
   runApp(const MyApp());
 }
@@ -48,12 +48,11 @@ class CameraPage extends StatefulWidget {
 class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   CameraController? _cameraController;
   SignClassifier? _classifier;
+  LandmarkClassifier? _landmarkClassifier;
   MediaPipeHandDetector? _handDetector;
   
   String _prediction = '-';
   double _confidence = 0.0;
-  int _inferenceTime = 0;
-  int _totalPipelineTime = 0;
   List<Map<String, dynamic>> _top3 = [];
   bool _isModelLoaded = false;
   bool _isCameraReady = false;
@@ -76,8 +75,18 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   bool _handDetected = false;
   
   // Prediction smoothing
-  List<String> _recentPredictions = [];
+  final List<String> _recentPredictions = [];
   static const int _smoothingWindow = 3;
+
+  // Translation text
+  String _translatedText = '';
+  final TextEditingController _translationController = TextEditingController();
+  String? _stableAutoLabel;
+  int _stableAutoCount = 0;
+  String? _lastAutoAcceptedLabel;
+  DateTime? _lastAutoAcceptedAt;
+  static const int _autoAcceptWindow = 3;
+  static const Duration _autoAcceptCooldown = Duration(milliseconds: 1600);
 
   @override
   void initState() {
@@ -116,6 +125,9 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
       // Load sign classifier
       _classifier = SignClassifier();
       await _classifier!.load();
+
+      _landmarkClassifier = LandmarkClassifier();
+      await _landmarkClassifier!.load();
       
       // Load MediaPipe hand detector
       _handDetector = MediaPipeHandDetector();
@@ -125,10 +137,9 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         setState(() {
           _isModelLoaded = true;
           _statusMessage = _handDetector!.isLoaded 
-            ? 'Ready! MediaPipe + MobileNetV3'
+            ? 'Ready! Hybrid recognition'
             : 'Ready! (hand detection unavailable)';
         });
-        print('DEBUG: Models loaded! Classifier=${_classifier!.isLoaded} MediaPipe=${_handDetector!.isLoaded}');
       }
     } catch (e) {
       if (!_isDisposed) {
@@ -220,43 +231,17 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
       interpolation: img.Interpolation.linear,
     );
     
-    // 3. Adaptive range detection
-    double maxVal = 0.0;
-    for (int y = 0; y < 224; y++) {
-      for (int x = 0; x < 224; x++) {
-        final pixel = resized.getPixel(x, y);
-        if (pixel.r > maxVal) maxVal = pixel.r.toDouble();
-        if (pixel.g > maxVal) maxVal = pixel.g.toDouble();
-        if (pixel.b > maxVal) maxVal = pixel.b.toDouble();
-      }
-    }
-    
-    // If the image is normalized in [0, 1], scale it to [0, 255]
-    final double scale = maxVal <= 1.01 ? 255.0 : 1.0;
-    print('DEBUG: Preprocessing range check: maxVal=${maxVal.toStringAsFixed(3)}, scaleFactor=$scale');
-    
-    // 4. Convert to Float32List in 0-255 range (training used no rescale)
+    // 2. Convert to Float32List in 0-255 range (training used no rescale)
     final Float32List inputData = Float32List(224 * 224 * 3);
     int idx = 0;
-    double sumR = 0, sumG = 0, sumB = 0;
     for (int y = 0; y < 224; y++) {
       for (int x = 0; x < 224; x++) {
         final pixel = resized.getPixel(x, y);
-        final r = pixel.r.toDouble() * scale;
-        final g = pixel.g.toDouble() * scale;
-        final b = pixel.b.toDouble() * scale;
-        inputData[idx++] = r;
-        inputData[idx++] = g;
-        inputData[idx++] = b;
-        sumR += r;
-        sumG += g;
-        sumB += b;
+        inputData[idx++] = pixel.r.toDouble();
+        inputData[idx++] = pixel.g.toDouble();
+        inputData[idx++] = pixel.b.toDouble();
       }
     }
-    final avgR = sumR / (224 * 224);
-    final avgG = sumG / (224 * 224);
-    final avgB = sumB / (224 * 224);
-    print('DEBUG: Preprocessed image averages: R=${avgR.toStringAsFixed(1)}, G=${avgG.toStringAsFixed(1)}, B=${avgB.toStringAsFixed(1)}');
     return inputData;
   }
 
@@ -278,6 +263,149 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     return label;
   }
 
+  double _resultConfidence(Map<String, dynamic> result) {
+    return (result['confidence'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  double _resultMargin(Map<String, dynamic> result) {
+    final top3 = List<Map<String, dynamic>>.from(result['top3'] ?? []);
+    if (top3.length < 2) return _resultConfidence(result);
+
+    final first = (top3[0]['confidence'] as num?)?.toDouble() ?? 0.0;
+    final second = (top3[1]['confidence'] as num?)?.toDouble() ?? 0.0;
+    return first - second;
+  }
+
+  bool _isUncertain(Map<String, dynamic> result) {
+    return _resultConfidence(result) < 0.72 || _resultMargin(result) < 0.18;
+  }
+
+  bool _isStrongDetectionFallback(Map<String, dynamic> result) {
+    return _resultConfidence(result) >= 0.82 && _resultMargin(result) >= 0.24;
+  }
+
+  bool _isStrongLandmarkResult(Map<String, dynamic>? result) {
+    if (result == null) return false;
+    return _resultConfidence(result) >= 0.90 && _resultMargin(result) >= 0.28;
+  }
+
+  bool _canAppendLabel(String label, double confidence) {
+    return label != '-' && label != '?' && label.isNotEmpty && confidence >= 0.70;
+  }
+
+  void _setTranslatedText(String value) {
+    _translatedText = value;
+    _translationController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  bool _maybeAppendTranslation(String label, double confidence) {
+    if (!_canAppendLabel(label, confidence)) {
+      _stableAutoLabel = null;
+      _stableAutoCount = 0;
+      return false;
+    }
+
+    if (!_isAutoDetecting) {
+      _setTranslatedText(_translatedText + label);
+      return true;
+    }
+
+    if (_stableAutoLabel == label) {
+      _stableAutoCount++;
+    } else {
+      _stableAutoLabel = label;
+      _stableAutoCount = 1;
+    }
+
+    if (_stableAutoCount < _autoAcceptWindow) return false;
+
+    final now = DateTime.now();
+    final acceptedRecently = _lastAutoAcceptedLabel == label &&
+        _lastAutoAcceptedAt != null &&
+        now.difference(_lastAutoAcceptedAt!) < _autoAcceptCooldown;
+
+    if (acceptedRecently) return false;
+
+    _setTranslatedText(_translatedText + label);
+    _lastAutoAcceptedLabel = label;
+    _lastAutoAcceptedAt = now;
+    return true;
+  }
+
+  Map<String, dynamic> _chooseMoreStableResult(
+    Map<String, dynamic> primary,
+    Map<String, dynamic> fallback,
+  ) {
+    if (!_isUncertain(primary)) return primary;
+
+    final primaryConfidence = _resultConfidence(primary);
+    final fallbackConfidence = _resultConfidence(fallback);
+    final primaryMargin = _resultMargin(primary);
+    final fallbackMargin = _resultMargin(fallback);
+
+    if (fallback['label'] == primary['label']) {
+      return fallbackConfidence > primaryConfidence ? fallback : primary;
+    }
+
+    if (fallbackConfidence >= primaryConfidence - 0.05 &&
+        fallbackMargin >= primaryMargin) {
+      return fallback;
+    }
+
+    return primary;
+  }
+
+  Map<String, dynamic> _combineHybridResult(
+    Map<String, dynamic> imageResult,
+    Map<String, dynamic>? landmarkResult,
+  ) {
+    if (landmarkResult == null || !_landmarkClassifier!.isLoaded) {
+      return {...imageResult, 'source': 'image'};
+    }
+
+    final imageLabel = imageResult['label'];
+    final landmarkLabel = landmarkResult['label'];
+    final imageConfidence = _resultConfidence(imageResult);
+    final landmarkConfidence = _resultConfidence(landmarkResult);
+    final imageMargin = _resultMargin(imageResult);
+    final landmarkMargin = _resultMargin(landmarkResult);
+
+    if (imageLabel == landmarkLabel) {
+      return {
+        ...imageResult,
+        'confidence': ((imageConfidence + landmarkConfidence) / 2).clamp(0.0, 1.0),
+        'source': 'hybrid',
+      };
+    }
+
+    if (landmarkConfidence >= 0.80 &&
+        landmarkMargin >= 0.20 &&
+        landmarkConfidence >= imageConfidence - 0.08) {
+      return {
+        ...landmarkResult,
+        'source': 'landmark',
+      };
+    }
+
+    if (imageConfidence >= 0.85 && imageMargin >= 0.22) {
+      return {
+        ...imageResult,
+        'source': 'image',
+      };
+    }
+
+    final bestEffort = landmarkConfidence > imageConfidence
+        ? landmarkResult
+        : imageResult;
+    return {
+      ...bestEffort,
+      'source': 'best-effort',
+    };
+  }
+
   Future<void> _captureAndClassify() async {
     if (!_isCameraReady || !_isModelLoaded || _isProcessing) return;
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
@@ -286,8 +414,6 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     if (!_isAutoDetecting) {
       setState(() => _statusMessage = 'Processing...');
     }
-
-    final pipelineStart = DateTime.now();
 
     try {
       // Step 1: Capture image
@@ -300,17 +426,20 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         image = img.flipHorizontal(image);
       }
       
-      // Step 2: Initial ROI crop (centre 75% of frame)
-      final roiPercent = 0.75;
+      // Step 2: Initial ROI crop (centre 85% of frame)
+      const roiPercent = 0.85;
       final roiW = (image.width * roiPercent).toInt();
       final roiH = (image.height * roiPercent).toInt();
-      final roiX = ((image.width - roiW) / 2).toInt();
-      final roiY = ((image.height - roiH) / 2).toInt();
+      final roiX = (image.width - roiW) ~/ 2;
+      final roiY = (image.height - roiH) ~/ 2;
       var roiImage = img.copyCrop(image, x: roiX, y: roiY, width: roiW, height: roiH);
       
       // Step 3: MediaPipe hand detection on ROI
       img.Image classificationInput = roiImage;
       bool handFound = false;
+      bool usedLandmarkCrop = false;
+      bool usedDetectionFallback = false;
+      Map<String, dynamic>? landmarkPrediction;
       
       if (_handDetector != null && _handDetector!.isLoaded) {
         final result = await _handDetector!.detect(roiImage);
@@ -318,8 +447,15 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         if (result != null) {
           handFound = true;
           
-          // Crop tightly around detected hand landmarks
+          // Crop around detected landmarks, while keeping context for classification.
           classificationInput = _handDetector!.cropToHandLandmarks(roiImage, result.boundingBox);
+          usedLandmarkCrop = true;
+          if (_landmarkClassifier != null && _landmarkClassifier!.isLoaded) {
+            landmarkPrediction = _landmarkClassifier!.classify(
+              result.features,
+              mode: _mode,
+            );
+          }
           
           // Scale landmarks back to full image coordinates for visualization
           if (_showLandmarks && !_isDisposed) {
@@ -341,7 +477,6 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
             });
           }
           
-          print('MediaPipe: Hand detected (${(result.confidence * 100).toStringAsFixed(0)}%) with 21 landmarks');
         } else {
           if (!_isDisposed) {
             setState(() {
@@ -350,29 +485,51 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
               _handDetected = false;
             });
           }
-          print('MediaPipe: No hand detected');
         }
       }
       
       // Only classify if hand was detected — prevents false "G"/"1" predictions
-      if (!handFound && _handDetector != null && _handDetector!.isLoaded) {
-        if (!_isDisposed) {
-          setState(() {
-            _prediction = '-';
-            _confidence = 0.0;
-            _top3 = [];
-            _statusMessage = 'No hand detected. Position hand in box.';
-            _isProcessing = false;
-          });
+      // Step 4: Classify the best crop. If the landmark crop is uncertain,
+      // compare it with the wider ROI because some signs need wrist/context.
+      Map<String, dynamic> result;
+
+      if (_isStrongLandmarkResult(landmarkPrediction)) {
+        result = {
+          ...landmarkPrediction!,
+          'source': 'landmark-fast',
+        };
+      } else {
+        result = _classifier!.classifyImage(
+          _preprocessImage(classificationInput),
+          mode: _mode,
+        );
+
+        if (!handFound && _handDetector != null && _handDetector!.isLoaded) {
+          if (!_isStrongDetectionFallback(result)) {
+            if (!_isDisposed) {
+              setState(() {
+                _prediction = '-';
+                _confidence = 0.0;
+                _top3 = [];
+                _statusMessage = 'No hand detected. Move closer or improve lighting.';
+                _isProcessing = false;
+              });
+            }
+            return;
+          }
+          usedDetectionFallback = true;
         }
-        return;
+
+        if (usedLandmarkCrop && _isUncertain(result)) {
+          final roiResult = _classifier!.classifyImage(
+            _preprocessImage(roiImage),
+            mode: _mode,
+          );
+          result = _chooseMoreStableResult(result, roiResult);
+        }
+
+        result = _combineHybridResult(result, landmarkPrediction);
       }
-      
-      // Step 4: Preprocess for classifier
-      final inputData = _preprocessImage(classificationInput);
-      
-      // Step 5: Classify
-      final result = _classifier!.classifyImage(inputData, mode: _mode);
       
       // Apply smoothing in auto mode
       String displayLabel;
@@ -387,16 +544,22 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         setState(() {
           _prediction = displayLabel;
           _confidence = result['confidence'] ?? 0.0;
-          _inferenceTime = result['timeMs'] ?? 0;
           _top3 = List<Map<String, dynamic>>.from(result['top3'] ?? []);
-          _statusMessage = _isAutoDetecting 
-            ? 'Auto-detecting...'
-            : 'Tap CAPTURE to try again';
+          final appended = _maybeAppendTranslation(displayLabel, _confidence);
+          _statusMessage = appended
+            ? 'Added "$displayLabel" to translation'
+            : usedDetectionFallback
+            ? 'Hand detected weakly. Keep hand inside box.'
+            : (result['source'] == 'best-effort'
+                ? 'Best guess. Check Top 3 if unsure.'
+                : (_isAutoDetecting
+                    ? 'Auto-detecting (${result['source']})...'
+                    : 'Tap CAPTURE to try again (${result['source']})'));
           _isProcessing = false;
         });
       }
     } catch (e) {
-      print('Error: $e');
+      debugPrint('Error: $e');
       if (!_isDisposed) {
         setState(() {
           _statusMessage = 'Error: $e';
@@ -412,7 +575,9 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
     _classifier?.dispose();
+    _landmarkClassifier?.dispose();
     _handDetector?.dispose();
+    _translationController.dispose();
     super.dispose();
   }
 
@@ -631,6 +796,44 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
                       )).toList(),
                     ),
                   ],
+
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(minHeight: 38, maxHeight: 64),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: TextField(
+                      controller: _translationController,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 ]')),
+                      ],
+                      keyboardType: TextInputType.text,
+                      textCapitalization: TextCapitalization.characters,
+                      maxLines: 2,
+                      minLines: 1,
+                      onChanged: (value) => setState(() => _translatedText = value),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        hintText: 'Translation will appear here',
+                        hintStyle: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
                   
                   const SizedBox(height: 6),
                   Text(_statusMessage, style: TextStyle(color: Colors.grey[500], fontSize: 10)),

@@ -1,6 +1,6 @@
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
-import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
@@ -11,36 +11,36 @@ class MediaPipeHandDetector {
   Interpreter? _landmarkDetector;
   bool _isLoaded = false;
   
-  // Palm detection model input
-  static const int PALM_INPUT_SIZE = 192;
-  
   // Hand landmark model input  
-  static const int LANDMARK_INPUT_SIZE = 224;
-  static const int NUM_LANDMARKS = 21;
+  static const int landmarkInputSize = 224;
+  static const int numLandmarks = 21;
+  static const double minPresenceConfidence = 0.35;
   
   bool get isLoaded => _isLoaded;
   
   /// Load both MediaPipe models
   Future<void> load() async {
     try {
-      print('Loading MediaPipe hand detection models...');
+      if (kDebugMode) debugPrint('Loading MediaPipe hand detection models...');
       
       // Load hand landmark model (we'll use ROI-guided approach)
       final landmarkOptions = InterpreterOptions();
       landmarkOptions.threads = 2;
       
       _landmarkDetector = await Interpreter.fromAsset(
-        'assets/model/hand_landmark_lite.tflite',
+        'assets/hand_landmark_lite.tflite',
         options: landmarkOptions,
       );
       
       _isLoaded = true;
-      print('✓ MediaPipe hand landmark model loaded');
-      print('  Input: ${_landmarkDetector!.getInputTensors()}');
-      print('  Output: ${_landmarkDetector!.getOutputTensors()}');
+      if (kDebugMode) {
+        debugPrint('MediaPipe hand landmark model loaded');
+        debugPrint('  Input: ${_landmarkDetector!.getInputTensors()}');
+        debugPrint('  Output: ${_landmarkDetector!.getOutputTensors()}');
+      }
       
     } catch (e) {
-      print('Error loading MediaPipe models: $e');
+      debugPrint('Error loading MediaPipe models: $e');
       _isLoaded = false;
     }
   }
@@ -55,27 +55,27 @@ class MediaPipeHandDetector {
       // Resize to model input
       final resized = img.copyResize(
         handRegionImage,
-        width: LANDMARK_INPUT_SIZE,
-        height: LANDMARK_INPUT_SIZE,
+        width: landmarkInputSize,
+        height: landmarkInputSize,
         interpolation: img.Interpolation.linear,
       );
       
       // Normalize to [0, 1]
-      final inputData = Float32List(LANDMARK_INPUT_SIZE * LANDMARK_INPUT_SIZE * 3);
+      final inputData = Float32List(landmarkInputSize * landmarkInputSize * 3);
       int idx = 0;
-      for (int y = 0; y < LANDMARK_INPUT_SIZE; y++) {
-        for (int x = 0; x < LANDMARK_INPUT_SIZE; x++) {
+      for (int y = 0; y < landmarkInputSize; y++) {
+        for (int x = 0; x < landmarkInputSize; x++) {
           final pixel = resized.getPixel(x, y);
           final r = pixel.r.toDouble();
           final g = pixel.g.toDouble();
           final b = pixel.b.toDouble();
-          inputData[idx++] = (r > 1.0 ? r : r * 255.0) / 255.0;
-          inputData[idx++] = (g > 1.0 ? g : g * 255.0) / 255.0;
-          inputData[idx++] = (b > 1.0 ? b : b * 255.0) / 255.0;
+          inputData[idx++] = r / 255.0;
+          inputData[idx++] = g / 255.0;
+          inputData[idx++] = b / 255.0;
         }
       }
       
-      final input = inputData.reshape([1, LANDMARK_INPUT_SIZE, LANDMARK_INPUT_SIZE, 3]);
+      final input = inputData.reshape([1, landmarkInputSize, landmarkInputSize, 3]);
       
       // MediaPipe hand landmark model outputs:
       // Output 0: landmarks (1, 63) - 21 landmarks × 3 (x, y, z)
@@ -98,17 +98,22 @@ class MediaPipeHandDetector {
       
       // Check hand presence
       final presenceScore = presenceOutput[0][0];
-      if (presenceScore < 0.5) {
+      if (presenceScore < minPresenceConfidence) {
         return null;
       }
       
       // Parse 21 landmarks (normalized 0-1 coordinates)
       final landmarks = <Offset>[];
+      final rawLandmarks = List<double>.filled(numLandmarks * 3, 0.0);
       double minX = 1.0, minY = 1.0, maxX = 0.0, maxY = 0.0;
       
-      for (int i = 0; i < NUM_LANDMARKS; i++) {
-        final x = (landmarkOutput[0][i * 3] / LANDMARK_INPUT_SIZE).clamp(0.0, 1.0);
-        final y = (landmarkOutput[0][i * 3 + 1] / LANDMARK_INPUT_SIZE).clamp(0.0, 1.0);
+      for (int i = 0; i < numLandmarks; i++) {
+        final x = (landmarkOutput[0][i * 3] / landmarkInputSize).clamp(0.0, 1.0);
+        final y = (landmarkOutput[0][i * 3 + 1] / landmarkInputSize).clamp(0.0, 1.0);
+        final z = landmarkOutput[0][i * 3 + 2] / landmarkInputSize;
+        rawLandmarks[i * 3] = x;
+        rawLandmarks[i * 3 + 1] = y;
+        rawLandmarks[i * 3 + 2] = z;
         
         landmarks.add(Offset(
           x * handRegionImage.width,
@@ -135,6 +140,7 @@ class MediaPipeHandDetector {
       
       return HandDetectionResult(
         landmarks: landmarks,
+        features: _normalizeLandmarks(rawLandmarks),
         boundingBox: bbox,
         confidence: presenceScore,
         imageWidth: handRegionImage.width,
@@ -142,14 +148,43 @@ class MediaPipeHandDetector {
       );
       
     } catch (e) {
-      print('MediaPipe detection error: $e');
+      debugPrint('MediaPipe detection error: $e');
       return null;
     }
   }
+
+  List<double> _normalizeLandmarks(List<double> rawLandmarks) {
+    if (rawLandmarks.length != numLandmarks * 3) {
+      return List<double>.filled(numLandmarks * 3, 0.0);
+    }
+
+    final wristX = rawLandmarks[0];
+    final wristY = rawLandmarks[1];
+    final wristZ = rawLandmarks[2];
+    double scale = 0.0;
+
+    for (int i = 0; i < numLandmarks; i++) {
+      final dx = rawLandmarks[i * 3] - wristX;
+      final dy = rawLandmarks[i * 3 + 1] - wristY;
+      scale = math.max(scale, math.sqrt(dx * dx + dy * dy));
+    }
+    if (scale < 1e-6) scale = 1.0;
+
+    final features = List<double>.filled(numLandmarks * 3, 0.0);
+    for (int i = 0; i < numLandmarks; i++) {
+      features[i * 3] = (rawLandmarks[i * 3] - wristX) / scale;
+      features[i * 3 + 1] = (rawLandmarks[i * 3 + 1] - wristY) / scale;
+      features[i * 3 + 2] = (rawLandmarks[i * 3 + 2] - wristZ) / scale;
+    }
+    return features;
+  }
   
-  /// Crop image tightly around detected hand landmarks
-  /// Returns a rectangular crop of the hand region
-  img.Image cropToHandLandmarks(img.Image image, List<double> bbox) {
+  /// Crop around detected hand landmarks while keeping enough context for the classifier.
+  img.Image cropToHandLandmarks(
+    img.Image image,
+    List<double> bbox, {
+    double padding = 0.35,
+  }) {
     final width = image.width;
     final height = image.height;
     
@@ -158,8 +193,26 @@ class MediaPipeHandDetector {
     double top = bbox[1] * height;
     double right = bbox[2] * width;
     double bottom = bbox[3] * height;
-    
-    print('DEBUG: cropToHandLandmarks - image size: ${width}x${height}, bbox: [${bbox[0].toStringAsFixed(3)}, ${bbox[1].toStringAsFixed(3)}, ${bbox[2].toStringAsFixed(3)}, ${bbox[3].toStringAsFixed(3)}], pixel coordinates: left=${left.toStringAsFixed(1)}, top=${top.toStringAsFixed(1)}, right=${right.toStringAsFixed(1)}, bottom=${bottom.toStringAsFixed(1)}');
+    final boxW = right - left;
+    final boxH = bottom - top;
+    final minCropSize = math.min(width, height) * 0.45;
+
+    left = math.max(0.0, left - boxW * padding);
+    top = math.max(0.0, top - boxH * padding);
+    right = math.min(width.toDouble(), right + boxW * padding);
+    bottom = math.min(height.toDouble(), bottom + boxH * padding);
+
+    if (right - left < minCropSize) {
+      final centerX = (left + right) / 2;
+      left = math.max(0.0, centerX - minCropSize / 2);
+      right = math.min(width.toDouble(), centerX + minCropSize / 2);
+    }
+
+    if (bottom - top < minCropSize) {
+      final centerY = (top + bottom) / 2;
+      top = math.max(0.0, centerY - minCropSize / 2);
+      bottom = math.min(height.toDouble(), centerY + minCropSize / 2);
+    }
     
     // Ensure valid dimensions
     final cropW = (right - left).toInt().clamp(10, width);
@@ -184,6 +237,7 @@ class MediaPipeHandDetector {
 /// Result from MediaPipe hand detection
 class HandDetectionResult {
   final List<Offset> landmarks;    // 21 landmark points in pixel coords
+  final List<double> features;      // 63 normalized x/y/z features for classification
   final List<double> boundingBox;  // [left, top, right, bottom] normalized 0-1
   final double confidence;          // Hand presence confidence
   final int imageWidth;
@@ -191,6 +245,7 @@ class HandDetectionResult {
   
   HandDetectionResult({
     required this.landmarks,
+    required this.features,
     required this.boundingBox,
     required this.confidence,
     required this.imageWidth,

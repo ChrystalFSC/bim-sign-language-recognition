@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'dart:math';
 
@@ -10,7 +11,7 @@ class HandDetector {
   
   Future<void> load() async {
     // No model to load for color-based detection
-    print('✓ Hand detector ready (color-based)');
+    if (kDebugMode) debugPrint('Hand detector ready (color-based)');
     _isLoaded = true;
   }
   
@@ -73,7 +74,7 @@ class HandDetector {
       ];
       
     } catch (e) {
-      print('Hand detection error: $e');
+      debugPrint('Hand detection error: $e');
       return null;
     }
   }
@@ -89,7 +90,6 @@ class HandDetector {
     if (!rgbRule) return false;
     
     // Rule 2: YCbCr color space (better for skin detection)
-    double y = 0.299 * r + 0.587 * g + 0.114 * b;
     double cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
     double cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
     

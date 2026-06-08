@@ -42,8 +42,3 @@ android {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    // TensorFlow Lite Select TF Ops for mixed precision model support
-    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
-}

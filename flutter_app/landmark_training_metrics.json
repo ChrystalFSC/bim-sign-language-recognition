@@ -1,0 +1,10 @@
+{
+  "samples": 3620,
+  "train_samples": 2897,
+  "validation_samples": 723,
+  "classes": 36,
+  "validation_loss": 0.12962238490581512,
+  "validation_accuracy": 0.9612724781036377,
+  "epochs_ran": 59,
+  "output": "assets\\landmark_classifier.tflite"
+}

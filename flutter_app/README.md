@@ -52,7 +52,7 @@ Camera Frame (JPEG)
                ▼
 ┌─────────────────────────────────┐
 │  STAGE 2: Classification        │
-│  mobilenetv3_small_float16.tflite│
+│  model_stage3_1_float16.tflite  │
 │  MobileNetV3-Small              │
 │  Input: [0, 255] Float32        │
 │  GPU Delegated (Full)           │
@@ -73,18 +73,16 @@ Camera Frame (JPEG)
 ## 📁 Project Structure
 
 ```
-flutter_app/
+bim_sign_app/
 ├── lib/
 │   ├── main.dart                   # App entry point, camera pipeline & UI
 │   ├── sign_classifier.dart        # TFLite classification wrapper
 │   ├── mediapipe_hand_detector.dart# MediaPipe 21-point landmark detector
 │   └── hand_landmark_painter.dart  # Canvas overlay for skeleton visualisation
 ├── assets/
-│   ├── model/
-│   │   ├── mobilenetv3_small_float16.tflite # Final MobileNetV3-Small classifier
-│   │   └── hand_landmark_lite.tflite        # MediaPipe hand landmark detector
-│   └── labels/
-│       └── label_map.txt               # 36-class label file (0–9, A–Z)
+│   ├── model_stage3_1_float16.tflite  # Final MobileNetV3-Small classifier
+│   ├── hand_landmark_lite.tflite      # MediaPipe hand landmark detector
+│   └── classes.txt                    # 36-class label file (0–9, A–Z)
 ├── android/
 │   └── app/build.gradle.kts        # Android build configuration
 ├── pubspec.yaml                    # Flutter dependencies
@@ -103,7 +101,7 @@ flutter_app/
 ### 1. Install Flutter dependencies
 
 ```bash
-cd flutter_app
+cd bim_sign_app
 flutter pub get
 ```
 
@@ -145,6 +143,6 @@ See `pubspec.yaml` for exact versions.
 
 ---
 
-## 🔗 Parent Repository
+## 🔗 Related Repository
 
-- This application is part of the **[bim-sign-language-recognition](../)** monorepo, which houses the training pipelines, 9-model benchmarking, evaluation tools, and TFLite conversion scripts for the deep learning models.
+- **[bim-sign-language-recognition](../bim-sign-language-recognition)** — Training pipeline, 9-model benchmarking, evaluation scripts, and TFLite conversion for the deep learning models used in this app.
